@@ -1,10 +1,11 @@
 const { Client } = require('pg');
+require('dotenv').config();
 
 const client = new Client({
-  user: 'postgres',      // Change to your username
-  password: 'osama123',  // Change to your password
-  host: 'localhost',
-  port: 5432,
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD,
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
   database: 'postgres', // Connect to default postgres database first
 });
 
@@ -16,11 +17,11 @@ client.connect(async (err) => {
 
   try {
     // Create database if it doesn't exist
-    await client.query('CREATE DATABASE solarease');
-    console.log('✓ Database "solarease" created successfully!');
+    await client.query(`CREATE DATABASE ${process.env.DB_NAME || 'solarease'}`);
+    console.log(`✓ Database "${process.env.DB_NAME || 'solarease'}" created successfully!`);
   } catch (error) {
     if (error.code === '42P04') {
-      console.log('✓ Database "solarease" already exists');
+      console.log(`✓ Database "${process.env.DB_NAME || 'solarease'}" already exists`);
     } else {
       console.error('Error creating database:', error);
       client.end();
@@ -32,11 +33,11 @@ client.connect(async (err) => {
   client.end();
   
   const solarClient = new Client({
-    user: 'postgres',
-    password: 'osama123',
-    host: 'localhost',
-    port: 5432,
-    database: 'solarease',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD,
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'solarease',
   });
 
   solarClient.connect(async (err) => {

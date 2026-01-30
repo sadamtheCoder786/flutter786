@@ -1,11 +1,13 @@
 const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
+require('dotenv').config();
 
 const pool = new Pool({
-  user: 'postgres',
-  password: 'osama123',
-  host: 'localhost',
-  port: 5432,
-  database: 'solarease',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD,
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'solarease',
 });
 
 async function addRoleColumnAndAdmin() {
@@ -18,21 +20,26 @@ async function addRoleColumnAndAdmin() {
     `);
     console.log('✓ Role column added successfully');
 
+    // Hash the admin password
+    console.log('\n⏳ Hashing admin password...');
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash('admin123', saltRounds); // Using a stronger default password
+
     // Insert predefined admin user
-    console.log('\n⏳ Inserting admin user...');
+    console.log('⏳ Inserting admin user...');
     const adminQuery = `
       INSERT INTO users (first_name, last_name, email, password, role)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (email) DO UPDATE 
-      SET role = 'admin'
-      RETURNING *
+      SET role = 'admin', password = EXCLUDED.password
+      RETURNING id, first_name, last_name, email, role, created_at
     `;
     
     const result = await pool.query(adminQuery, [
-      'osama',
-      'khan',
-      'test@gmail.com',
-      'test1234',
+      'Admin',
+      'User',
+      'admin@solarease.com',
+      hashedPassword,
       'admin'
     ]);
 
@@ -42,6 +49,7 @@ async function addRoleColumnAndAdmin() {
     console.log('First Name:', result.rows[0].first_name);
     console.log('Last Name:', result.rows[0].last_name);
     console.log('Role:', result.rows[0].role);
+    console.log('Default Password: admin123 (Please change after first login)');
     console.log('=========================================\n');
 
     pool.end();

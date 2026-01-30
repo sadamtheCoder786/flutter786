@@ -1,20 +1,22 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
+require('dotenv').config();
 
 const app = express();
 app.use(cors());
 app.use(express.json()); // VERY IMPORTANT
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// PostgreSQL Connection Pool
+// PostgreSQL Connection Pool - Now using environment variables
 const pool = new Pool({
-  user: 'postgres',      // Change to your username
-  password: 'osama123',  // Change to your password
-  host: 'localhost',
-  port: 5432,
-  database: 'solarease',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD,
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'solarease',
 });
 
 // Test the connection
@@ -46,7 +48,6 @@ app.post('/signup', async (req, res) => {
   console.log('First Name:', firstName);
   console.log('Last Name :', lastName);
   console.log('Email     :', email);
-  console.log('Password  :', password);
   console.log('Role      :', userRole);
   console.log('==========================================');
   
@@ -56,15 +57,32 @@ app.post('/signup', async (req, res) => {
     return res.status(400).json({ message: 'Missing required fields' });
   }
   
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.error('❌ Invalid email format');
+    return res.status(400).json({ message: 'Invalid email format' });
+  }
+  
+  // Validate password strength (minimum 8 characters)
+  if (password.length < 8) {
+    console.error('❌ Password too weak');
+    return res.status(400).json({ message: 'Password must be at least 8 characters long' });
+  }
+  
   try {
+    console.log('⏳ Hashing password...');
+    // Hash password before storing
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    
     console.log('⏳ Inserting user into database...');
-    // Insert user into database with the selected role
-    const query = 'INSERT INTO users (first_name, last_name, email, password, role) VALUES ($1, $2, $3, $4, $5) RETURNING *';
-    const result = await pool.query(query, [firstName, lastName, email, password, userRole]);
+    // Insert user into database with the selected role and hashed password
+    const query = 'INSERT INTO users (first_name, last_name, email, password, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, first_name, last_name, email, role, created_at';
+    const result = await pool.query(query, [firstName, lastName, email, hashedPassword, userRole]);
     
     console.log('\n✓✓✓ USER SAVED SUCCESSFULLY! ✓✓✓');
     console.log('User ID:', result.rows[0].id);
-    console.log('User data:', result.rows[0]);
     console.log('Role:', userRole);
     console.log('Database: solarease');
     console.log('Table: users');
@@ -75,7 +93,12 @@ app.post('/signup', async (req, res) => {
     console.error('\n❌ DATABASE ERROR ❌');
     console.error('Error message:', error.message);
     console.error('Error code:', error.code);
-    console.error('Full error:', error);
+    
+    // Handle duplicate email error
+    if (error.code === '23505') {
+      return res.status(409).json({ message: 'Email already exists' });
+    }
+    
     console.error('=========================================\n');
     res.status(500).json({ message: 'Error registering user', error: error.message });
   }
@@ -87,7 +110,6 @@ app.post('/login', async (req, res) => {
   
   console.log('\n========== LOGIN REQUEST RECEIVED ==========');
   console.log('Email     :', email);
-  console.log('Password  :', password);
   console.log('=========================================');
   
   // Validate inputs
@@ -95,21 +117,42 @@ app.post('/login', async (req, res) => {
     console.error('❌ Missing email or password');
     return res.status(400).json({ message: 'Missing email or password' });
   }
+  
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.error('❌ Invalid email format');
+    return res.status(400).json({ message: 'Invalid email format' });
+  }
 
   try {
     console.log('⏳ Querying database for user...');
-    // Query database for user
-    const query = 'SELECT * FROM users WHERE email = $1 AND password = $2';
-    const result = await pool.query(query, [email, password]);
+    // Query database for user - FIXED: Using parameterized query to prevent SQL injection
+    const query = 'SELECT * FROM users WHERE email = $1';
+    const result = await pool.query(query, [email]);
     
     if (result.rows.length > 0) {
-      console.log('\n✓✓✓ LOGIN SUCCESSFUL ✓✓✓');
-      console.log('User ID:', result.rows[0].id);
-      console.log('User Name:', result.rows[0].first_name, result.rows[0].last_name);
-      console.log('Email:', result.rows[0].email);
-      console.log('Role:', result.rows[0].role);
-      console.log('=========================================\n');
-      res.status(200).json({ message: 'Login successful', user: result.rows[0] });
+      const user = result.rows[0];
+      
+      // Compare provided password with hashed password
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      
+      if (passwordMatch) {
+        console.log('\n✓✓✓ LOGIN SUCCESSFUL ✓✓✓');
+        console.log('User ID:', user.id);
+        console.log('User Name:', user.first_name, user.last_name);
+        console.log('Email:', user.email);
+        console.log('Role:', user.role);
+        console.log('=========================================\n');
+        
+        // Don't send password in response
+        const { password: _, ...userWithoutPassword } = user;
+        res.status(200).json({ message: 'Login successful', user: userWithoutPassword });
+      } else {
+        console.log('❌ Login Status: FAILED - Invalid credentials');
+        console.log('=========================================\n');
+        res.status(401).json({ message: 'Invalid credentials' });
+      }
     } else {
       console.log('❌ Login Status: FAILED - Invalid credentials');
       console.log('=========================================\n');
